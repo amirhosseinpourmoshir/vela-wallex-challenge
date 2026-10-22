@@ -9,7 +9,8 @@
     "build": "vite build",
     "check": "tsc --noEmit",
     "env:check": "node scripts/check-env.js",
-    "test:config": "node --test config/env.test.js"
+    "test:config": "node --test config/env.test.js",
+    "test:services": "node --test services/service-checks.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
