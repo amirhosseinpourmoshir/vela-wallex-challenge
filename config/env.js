@@ -60,6 +60,7 @@ export function readConfig(env = process.env) {
       agentEnabled: bool('AGENT_ENABLED'),
       liveTradingEnabled: bool('LIVE_TRADING_ENABLED'),
     }),
+    reviewTrading: Object.freeze({enabled: bool('LIVE_ORDER_REVIEW_ENABLED', false)}),
     wallex: Object.freeze({
       baseUrl: url('WALLEX_API_BASE_URL', 'https://api.wallex.ir'),
       apiKey: text('WALLEX_API_KEY'),
@@ -137,7 +138,7 @@ export function readConfig(env = process.env) {
   if (config.challenge.startAt && config.challenge.endAt && Date.parse(config.challenge.endAt) <= Date.parse(config.challenge.startAt)) throw new Error('CHALLENGE_END_AT must be after CHALLENGE_START_AT');
   if (config.trading.allowedSymbols.some(s => config.trading.blockedSymbols.includes(s))) throw new Error('Allowed and blocked market lists overlap');
   if (config.risk.maxOrderTmn > config.risk.maxTotalExposureTmn || config.risk.maxTotalExposureTmn > config.challenge.initialCapitalTmn) throw new Error('Risk caps must satisfy: order <= exposure <= initial capital');
-  // No engine is implemented in this version: never imply flags activate real trading.
+  // Autonomous live trading stays disabled; reviewed orders use a separate explicit feature.
   if (config.app.mode !== 'demo' || config.app.agentEnabled || config.app.liveTradingEnabled || config.mcp.enabled) {
     throw new Error('This scaffold only supports demo with AGENT_ENABLED, LIVE_TRADING_ENABLED and WALLEX_MCP_ENABLED=false; integration is not implemented yet');
   }

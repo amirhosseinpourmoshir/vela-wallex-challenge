@@ -132,7 +132,7 @@ export function createKnowledge(db,config) {
       const stats=db.prepare("SELECT count(*) AS candles,min(open_time) AS first,max(open_time) AS last FROM historical_candles WHERE source='wallex' AND symbol=?").get(m.symbol);
       const docs=db.prepare('SELECT count(*) AS documents FROM knowledge_documents WHERE symbol=?').get(m.symbol);
       const vectors=db.prepare('SELECT count(*) AS vectors FROM knowledge_vectors v JOIN knowledge_documents d ON d.id=v.document_id WHERE d.symbol=? AND v.model=?').get(m.symbol,config.embedding.model);
-      return {symbol:m.symbol,name:m.name,base:m.base,spotAvailable:Boolean(m.spotAvailable),...p,...stats,...docs,...vectors,executionAllowed:false};
+      return {symbol:m.symbol,name:m.name,base:m.base,spotAvailable:Boolean(m.spotAvailable),...p,...stats,...docs,...vectors,executionAllowed:false,reviewedExecutionAllowed:config.reviewTrading?.enabled===true};
     });
     const jobs=db.prepare('SELECT * FROM knowledge_jobs ORDER BY id DESC LIMIT 25').all().map(j=>({...j,report:j.report?JSON.parse(j.report):null}));
     const pages=db.prepare('PRAGMA page_count').get().page_count,free=db.prepare('PRAGMA freelist_count').get().freelist_count,size=db.prepare('PRAGMA page_size').get().page_size;
@@ -152,7 +152,7 @@ export function createKnowledge(db,config) {
     if(!m)return res.status(400).json({message:'نماد خارج از فهرست مجاز است.'});
     if(active&&db.prepare('SELECT symbol FROM knowledge_jobs WHERE id=?').get(active.id)?.symbol===symbol)return res.status(409).json({message:'تا پایان پردازش این ارز، تغییر یادداشت را ذخیره نکنید.'});
     if(typeof enabled!=='boolean'||!['margin','spot'].includes(tradeType)||typeof notes!=='string'||notes.length>3000)return res.status(400).json({message:'تنظیمات معتبر نیست؛ یادداشت حداکثر ۳۰۰۰ کاراکتر.'});
-    if(enabled&&tradeType!=='margin')return res.status(400).json({message:'طبق سیاست فعلی، فعال‌سازی مشارکت فقط برای تعهدی تومانی مجاز است؛ معمولی فقط برای پژوهش ذخیره می‌شود.'});
+
     if(tradeType==='spot'&&!m.spotAvailable)return res.status(400).json({message:'بازار معمولی برای این ارز موجود نیست.'});
     db.exec('BEGIN');
     try {
@@ -161,7 +161,7 @@ export function createKnowledge(db,config) {
       else{db.prepare("DELETE FROM knowledge_vectors WHERE document_id IN (SELECT id FROM knowledge_documents WHERE symbol=? AND kind='strategy_note')").run(symbol);db.prepare("DELETE FROM knowledge_documents WHERE symbol=? AND kind='strategy_note'").run(symbol);}
       db.exec('COMMIT');
     }catch(e){db.exec('ROLLBACK');return res.status(500).json({message:'ذخیرهٔ یادداشت انجام نشد.'});}
-    res.json({ok:true,executionAllowed:false});
+    res.json({ok:true,executionAllowed:false,reviewedExecutionAllowed:config.reviewTrading?.enabled===true});
   });
   router.post('/:symbol/jobs',(req,res)=>{
     const {kind,days}=req.body;

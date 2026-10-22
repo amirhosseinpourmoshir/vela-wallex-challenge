@@ -11,6 +11,7 @@ import { readMarketCatalog } from './services/market-catalog.js';
 import { createLiveMarkets } from './services/live-markets.js';
 import { createKnowledge } from './services/knowledge.js';
 import { createAgent } from './services/agent-engine.js';
+import { createLiveOrders } from './services/live-orders.js';
 import { attachAgentStream } from './services/agent-stream.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -26,8 +27,10 @@ app.use('/api/knowledge',knowledge.router);
 let agentStream=null;
 const agent=createAgent(db,config,{onUpdate:message=>agentStream?.publish(message)});
 app.use('/api/agent',agent.router);
+const liveOrders=createLiveOrders(db,config,{onUpdate:message=>{for(const socket of wss.clients)if(socket.readyState===1)socket.send(JSON.stringify(message))}});
+app.use('/api/live',liveOrders.router);
 app.get('/api/markets', (_,res)=>{res.set('Cache-Control','no-store');res.json(liveMarkets.snapshot());});
-app.get('/api/status',(_,res)=>res.json({agentImplemented:true,liveTradingEnabled:false,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
+app.get('/api/status',(_,res)=>res.json({agentImplemented:true,liveTradingEnabled:false,liveOrderReviewEnabled:config.reviewTrading.enabled,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
 app.post('/api/pause',(req,res)=>{if(typeof req.body.paused!=='boolean')return res.status(400).json({error:'paused must be boolean'});db.prepare('UPDATE settings SET paused=? WHERE id=1').run(Number(req.body.paused));res.json({paused:req.body.paused,demo:true});});
 const server=createServer(app);
 const wss=new WebSocketServer({server,path:'/ws'});
@@ -38,5 +41,5 @@ const timer=setInterval(()=>{for(const socket of wss.clients)if(socket.readyStat
 if(config.app.nodeEnv==='production'){app.use(express.static(path.join(root,'dist')));app.get('/{*path}',(_,res)=>res.sendFile(path.join(root,'dist','index.html')));}
 else{const {createServer:createViteServer}=await import('vite');const vite=await createViteServer({server:{middlewareMode:true},appType:'spa'});app.use(vite.middlewares);}
 server.listen(config.app.port,'127.0.0.1',()=>console.log(`Vela ready: http://localhost:${config.app.port}`));
-function shutdown(){clearInterval(timer);liveMarkets.stop();knowledge.stop();agent.stop();for(const socket of wss.clients)socket.terminate();wss.close();server.close(()=>{db.close();process.exit(0);});}
+function shutdown(){clearInterval(timer);liveMarkets.stop();knowledge.stop();agent.stop();liveOrders.stop();for(const socket of wss.clients)socket.terminate();wss.close();server.close(()=>{db.close();process.exit(0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
