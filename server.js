@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readConfig } from './config/env.js';
 import { serviceChecksRouter } from './services/service-checks.js';
+import { readMarketCatalog } from './services/market-catalog.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const config = readConfig();
@@ -16,6 +17,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1)
 const app = express();
 app.use(express.json());
 app.use('/api/services', serviceChecksRouter(config));
+app.get('/api/markets', (_,res)=>{res.set('Cache-Control','no-store');res.json(readMarketCatalog(db));});
 app.get('/api/status',(_,res)=>res.json({demo:true,agentImplemented:false,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
 app.post('/api/pause',(req,res)=>{if(typeof req.body.paused!=='boolean')return res.status(400).json({error:'paused must be boolean'});db.prepare('UPDATE settings SET paused=? WHERE id=1').run(Number(req.body.paused));res.json({paused:req.body.paused,demo:true});});
 const server=createServer(app);

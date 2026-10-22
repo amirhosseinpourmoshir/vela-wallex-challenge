@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "env:check": "node scripts/check-env.js",
     "test:config": "node --test config/env.test.js",
-    "test:services": "node --test services/service-checks.test.js"
+    "test:services": "node --test services/service-checks.test.js",
+    "markets:sync": "node scripts/sync-markets.js",
+    "test:markets": "node --test services/market-catalog.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
