@@ -14,11 +14,13 @@
     "markets:sync": "node scripts/sync-markets.js",
     "test:markets": "node --test services/market-catalog.test.js",
     "test:knowledge": "node --test services/history.test.js services/incremental-history.test.js",
-    "test:agent": "node --test services/trader-analysis.test.js services/agent-engine.test.js"
+    "test:agent": "node --test services/trader-analysis.test.js services/market-watcher.test.js services/agent-engine.test.js services/agent-portfolio.test.js services/persian-date.test.js services/scenario-context.test.js services/agent-stream.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
     "express": "^5.1.0",
+    "fast-xml-parser": "^5.11.2",
+    "jalaali-js": "^2.0.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

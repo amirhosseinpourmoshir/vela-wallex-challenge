@@ -1,0 +1,7 @@
+// Descriptive pre-start stress cases. These are NOT independent model backtests.
+export function researchHistory(db,symbol,cutoff){
+ const days=db.prepare("SELECT CAST(open_time/86400 AS INTEGER)*86400 AS day,COUNT(*) AS n FROM historical_candles WHERE source='wallex' AND interval_seconds=60 AND symbol=? AND open_time+60<=? GROUP BY day HAVING n>=1382 AND day+86400<=? ORDER BY day").all(symbol,cutoff,cutoff);
+ const count=Math.min(12,Math.floor(Math.sqrt(days.length))),chosen=new Set();for(let i=0;i<count;i++)chosen.add(Math.round(i*(days.length-1)/Math.max(1,count-1)));
+ const samples=[...chosen].map(index=>{const day=days[index].day,rows=db.prepare("SELECT CAST(open AS REAL) AS o,CAST(close AS REAL) AS c FROM historical_candles WHERE source='wallex' AND interval_seconds=60 AND symbol=? AND open_time>=? AND open_time<? ORDER BY open_time").all(symbol,day,day+86400);let peak=rows[0].o,dd=0;for(const c of rows){peak=Math.max(peak,c.c);dd=Math.max(dd,(peak-c.c)/peak)}return {day,candles:rows.length,returnPercent:Number(((rows.at(-1).c/rows[0].o-1)*100).toFixed(3)),observedCloseDrawdownPercent:Number((dd*100).toFixed(3))}});
+ return {cutoff,count:samples.length,description:'Disjoint pre-start descriptive daily stress cases, not OOS model tests or evidence of strategy profitability.',worstObservedDrawdownPercent:samples.length?Math.max(...samples.map(s=>s.observedCloseDrawdownPercent)):null,samples};
+}

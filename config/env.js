@@ -95,6 +95,7 @@ export function readConfig(env = process.env) {
     }),
     agent: Object.freeze({
       decisionIntervalMs: number('AGENT_DECISION_INTERVAL_MS', 60000, 1000),
+      maxTokensPerDay: number('AGENT_MAX_TOKENS_PER_DAY', 1000000, 1000, 10000000),
       strategyVersion: text('AGENT_STRATEGY_VERSION', 'vela_v1'),
       promptVersion: text('AGENT_PROMPT_VERSION', 'decision_v1'),
       saveDecisionInputs: bool('AGENT_SAVE_DECISION_INPUTS', true),
