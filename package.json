@@ -13,7 +13,7 @@
     "test:services": "node --test services/service-checks.test.js",
     "markets:sync": "node scripts/sync-markets.js",
     "test:markets": "node --test services/market-catalog.test.js",
-    "test:knowledge": "node --test services/history.test.js"
+    "test:knowledge": "node --test services/history.test.js services/incremental-history.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",

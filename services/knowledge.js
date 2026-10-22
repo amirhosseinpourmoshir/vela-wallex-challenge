@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { readMarketCatalog } from './market-catalog.js';
 import { normalizeCandles, qualityReport, buildDocuments } from './history.js';
+import { missingRanges, saveDocuments } from './incremental-history.js';
 
 export function initKnowledge(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS coin_preferences(symbol TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,trade_type TEXT NOT NULL DEFAULT 'margin',notes TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL);
@@ -8,6 +9,8 @@ export function initKnowledge(db) {
     CREATE TABLE IF NOT EXISTS knowledge_documents(id INTEGER PRIMARY KEY,symbol TEXT NOT NULL,kind TEXT NOT NULL,start_time INTEGER NOT NULL,end_time INTEGER NOT NULL,text TEXT NOT NULL,hash TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(symbol,hash));
     CREATE TABLE IF NOT EXISTS knowledge_vectors(document_id INTEGER NOT NULL,model TEXT NOT NULL,dimensions INTEGER NOT NULL,vector TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(document_id,model),FOREIGN KEY(document_id) REFERENCES knowledge_documents(id));
     CREATE TABLE IF NOT EXISTS knowledge_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,symbol TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,progress INTEGER NOT NULL DEFAULT 0,message TEXT NOT NULL DEFAULT '',report TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);`);
+  db.exec(`CREATE TABLE IF NOT EXISTS history_unavailable_ranges(source TEXT NOT NULL,symbol TEXT NOT NULL,from_time INTEGER NOT NULL,to_time INTEGER NOT NULL,retry_after INTEGER NOT NULL,PRIMARY KEY(source,symbol,from_time,to_time));`);
+  db.exec('CREATE TABLE IF NOT EXISTS history_dirty_days(symbol TEXT NOT NULL,day INTEGER NOT NULL,PRIMARY KEY(symbol,day));');
   // Interrupted jobs are never silently resumed (especially paid embedding requests).
   db.prepare("UPDATE knowledge_jobs SET status='interrupted',message='سرور هنگام پردازش متوقف شده؛ اجرای مجدد لازم است.' WHERE status IN ('running','queued')").run();
 }
@@ -40,49 +43,63 @@ export function createKnowledge(db,config) {
   }
   async function ingest(id,symbol,days) {
     const to=Math.floor(Date.now()/60000)*60-60,from=to-days*86400+60;
-    let rejected=0,duplicates=0;
-    const put=db.prepare('INSERT OR REPLACE INTO historical_candles VALUES(?,?,?,?,?,?,?,?,?,?)');
-    // Verified one-day windows: larger UDF requests silently truncate in practice.
-    for(let cursor=from;cursor<=to;cursor+=86400){
-      ensure(id,symbol);const end=Math.min(to,cursor+86400-60);
+    let rejected=0,duplicates=0,inserted=0,requests=0;
+    const existing=db.prepare("SELECT open_time FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,from,to).map(c=>c.open_time);
+    const epoch=Math.floor(Date.now()/1000);
+    db.prepare('DELETE FROM history_unavailable_ranges WHERE retry_after<=?').run(epoch);
+    const suppressed=db.prepare("SELECT from_time AS 'from',to_time AS 'to' FROM history_unavailable_ranges WHERE source='wallex' AND symbol=? AND retry_after>? AND to_time>=? AND from_time<=?").all(symbol,epoch,from,to);
+    const windows=missingRanges(existing,from,to,suppressed);
+    const touchedDays=new Set(db.prepare('SELECT day FROM history_dirty_days WHERE symbol=?').all(symbol).map(r=>r.day));
+    const put=db.prepare('INSERT OR IGNORE INTO historical_candles VALUES(?,?,?,?,?,?,?,?,?,?)');
+    for(let index=0;index<windows.length;index++){
+      const window=windows[index],cursor=window.from,end=window.to;
+      ensure(id,symbol);
       const u=new URL(config.wallex.baseUrl+'/v1/udf/history');u.search=new URLSearchParams({symbol,resolution:'1',from:String(cursor),to:String(end)});
       const r=await fetch(u,{redirect:'error',signal:AbortSignal.timeout(config.wallex.httpTimeoutMs)});
+      requests++;
       if(!r.ok)throw Error(`دریافت تاریخچه ناموفق بود (HTTP ${r.status}).`);
       const normalized=normalizeCandles(await r.json(),cursor,end);ensure(id,symbol);
       rejected+=normalized.rejected;duplicates+=normalized.duplicates;
       const now=new Date().toISOString();
-      db.exec('BEGIN');try{for(const c of normalized.candles)put.run('wallex',symbol,60,c.t,c.o,c.h,c.l,c.c,c.v,now);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
-      update(id,{progress:Math.min(90,Math.round((end-from)/(to-from)*90)),message:'دریافت و اعتبارسنجی کندل‌های بسته‌شده…'});
+      db.exec('BEGIN');try{
+        const dirty=db.prepare('INSERT OR IGNORE INTO history_dirty_days VALUES(?,?)');
+        for(const c of normalized.candles){const n=Number(put.run('wallex',symbol,60,c.t,c.o,c.h,c.l,c.c,c.v,now).changes);inserted+=n;if(n){const day=Math.floor(c.t/86400)*86400;touchedDays.add(day);dirty.run(symbol,day);}else duplicates++;}
+        const mark=db.prepare("INSERT OR REPLACE INTO history_unavailable_ranges VALUES('wallex',?,?,?,?)");
+        for(const gap of missingRanges(normalized.candles.map(c=>c.t),cursor,end))mark.run(symbol,gap.from,gap.to,epoch+(gap.to>=to-3600?300:86400));
+        db.exec('COMMIT');
+      }catch(e){db.exec('ROLLBACK');throw e;}
+      update(id,{progress:Math.round((index+1)/windows.length*90),message:`${inserted.toLocaleString('fa-IR')} کندل جدید؛ ${existing.length.toLocaleString('fa-IR')} کندل موجود دوباره دانلود نشد.`});
       await new Promise(resolve=>setTimeout(resolve,550));
     }
     ensure(id,symbol);
     const candles=db.prepare("SELECT open_time AS t,open AS o,high AS h,low AS l,close AS c,volume AS v FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,from,to);
-    const report={...qualityReport(candles,from,to),rejectedRows:rejected,duplicateRows:duplicates,source:'wallex',intervalSeconds:60};
+    const report={...qualityReport(candles,from,to),rejectedRows:rejected,duplicateRows:duplicates,insertedCandles:inserted,existingCandles:existing.length,networkRequests:requests,suppressedRanges:suppressed.length,source:'wallex',intervalSeconds:60};
     if(!candles.length){update(id,{status:'failed',progress:100,message:'داده‌ای در بازهٔ درخواستی موجود نبود.',report});return;}
     const notes=db.prepare('SELECT notes FROM coin_preferences WHERE symbol=?').get(symbol)?.notes||'';
-    const documentCandles=db.prepare("SELECT open_time AS t,open AS o,high AS h,low AS l,close AS c,volume AS v FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,Math.floor(from/86400)*86400,to);
-    const docs=buildDocuments(symbol,documentCandles,notes);
-    const insert=db.prepare('INSERT OR IGNORE INTO knowledge_documents(symbol,kind,start_time,end_time,text,hash,created_at) VALUES(?,?,?,?,?,?,?)');
+    // Only rebuild changed days, plus missing documents (e.g. after an interrupted job).
+    const storedDays=db.prepare("SELECT DISTINCT CAST(open_time/86400 AS INTEGER)*86400 AS day FROM historical_candles WHERE source='wallex' AND symbol=? AND open_time BETWEEN ? AND ?").all(symbol,from,to);
+    for(const {day} of storedDays)if(!db.prepare("SELECT 1 FROM knowledge_documents WHERE symbol=? AND kind='market_day' AND start_time=?").get(symbol,day))touchedDays.add(day);
+    let docs=[];
+    for(const day of touchedDays){const rows=db.prepare("SELECT open_time AS t,open AS o,high AS h,low AS l,close AS c,volume AS v FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,day,Math.min(day+86340,to));docs.push(...buildDocuments(symbol,rows));}
+    docs.push(...buildDocuments(symbol,[],notes));
+    let documentChanges;
     db.exec('BEGIN');
     try{
-      for(const doc of docs){
-        const previous=db.prepare('SELECT id,hash FROM knowledge_documents WHERE symbol=? AND kind=? AND start_time=?').all(symbol,doc.kind,doc.start);
-        for(const old of previous)if(old.hash!==doc.hash){db.prepare('DELETE FROM knowledge_vectors WHERE document_id=?').run(old.id);db.prepare('DELETE FROM knowledge_documents WHERE id=?').run(old.id);}
-        insert.run(symbol,doc.kind,doc.start,doc.end,doc.text,doc.hash,new Date().toISOString());
-      }
+      documentChanges=saveDocuments(db,symbol,docs);
+      for(const day of touchedDays)db.prepare('DELETE FROM history_dirty_days WHERE symbol=? AND day=?').run(symbol,day);
       db.exec('COMMIT');
     }catch(e){db.exec('ROLLBACK');throw e;}
-    update(id,{status:'completed',progress:100,message:`${candles.length.toLocaleString('fa-IR')} کندل معتبر و ${docs.length.toLocaleString('fa-IR')} متن آماده شد؛ پوشش ${report.coveragePercent}٪.`,report:{...report,documents:docs.length}});
+    update(id,{status:'completed',progress:100,message:`${inserted.toLocaleString('fa-IR')} کندل جدید · ${existing.length.toLocaleString('fa-IR')} موجود حفظ شد · ${requests} درخواست؛ پوشش ${report.coveragePercent}٪.`,report:{...report,documentsChanged:documentChanges.changed,documentsUnchanged:documentChanges.unchanged}});
   }
   async function embed(id,symbol) {
     const docs=db.prepare('SELECT d.* FROM knowledge_documents d WHERE d.symbol=? AND NOT EXISTS(SELECT 1 FROM knowledge_vectors v WHERE v.document_id=d.id AND v.model=?) ORDER BY d.end_time DESC LIMIT ?').all(symbol,config.embedding.model,config.embedding.maxDocuments);
-    if(!docs.length)throw Error('متن جدیدی برای بردارسازی وجود ندارد؛ ابتدا تاریخچه را آماده کنید.');
+    if(!docs.length){update(id,{status:'completed',progress:100,message:'همهٔ متن‌ها از قبل بردار دارند؛ هیچ درخواست یا هزینهٔ جدیدی ایجاد نشد.',report:{model:config.embedding.model,documents:0,networkRequests:0}});return;}
     let processed=0;
     for(let i=0;i<docs.length;i+=config.embedding.batchSize){
       ensure(id,symbol);const batch=docs.slice(i,i+config.embedding.batchSize);
       const vectors=await embedTexts(config,batch.map(d=>d.text));ensure(id,symbol);
       const insert=db.prepare('INSERT OR REPLACE INTO knowledge_vectors VALUES(?,?,?,?,?)');
-      db.exec('BEGIN');try{batch.forEach((d,index)=>insert.run(d.id,config.embedding.model,vectors[index].length,JSON.stringify(vectors[index]),new Date().toISOString()));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
+      db.exec('BEGIN');try{batch.forEach((d,index)=>{if(db.prepare('SELECT 1 FROM knowledge_documents WHERE id=? AND hash=?').get(d.id,d.hash))insert.run(d.id,config.embedding.model,vectors[index].length,JSON.stringify(vectors[index]),new Date().toISOString());});db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
       processed+=batch.length;update(id,{progress:Math.round(processed/docs.length*100),message:`${processed}/${docs.length} متن بردارسازی شد.`});
     }
     update(id,{status:'completed',progress:100,message:'بردارهای واقعی با موفقیت در SQLite ذخیره شدند.',report:{model:config.embedding.model,documents:processed}});
@@ -93,6 +110,7 @@ export function createKnowledge(db,config) {
     const now=new Date().toISOString();
     const result=db.prepare("INSERT INTO knowledge_jobs(symbol,kind,status,created_at,updated_at) VALUES(?,?,'running',?,?)").run(symbol,kind,now,now);
     const id=Number(result.lastInsertRowid);active={id,cancelled:false};
+    db.exec("DELETE FROM knowledge_jobs WHERE status NOT IN ('running','queued') AND id NOT IN (SELECT id FROM knowledge_jobs ORDER BY id DESC LIMIT 100)");
     const work=kind==='history'?ingest(id,symbol,days):embed(id,symbol);
     void work.catch(error=>{
       if(stopping)return;
@@ -117,20 +135,30 @@ export function createKnowledge(db,config) {
       return {symbol:m.symbol,name:m.name,base:m.base,spotAvailable:Boolean(m.spotAvailable),...p,...stats,...docs,...vectors,executionAllowed:false};
     });
     const jobs=db.prepare('SELECT * FROM knowledge_jobs ORDER BY id DESC LIMIT 25').all().map(j=>({...j,report:j.report?JSON.parse(j.report):null}));
-    res.json({coins:rows,jobs,embeddingModel:config.embedding.model,policy:'margin_tmn_only',activeJob:active?.id||null});
+    const pages=db.prepare('PRAGMA page_count').get().page_count,free=db.prepare('PRAGMA freelist_count').get().freelist_count,size=db.prepare('PRAGMA page_size').get().page_size;
+    res.json({coins:rows,jobs,embeddingModel:config.embedding.model,policy:'margin_tmn_only',activeJob:active?.id||null,storage:{usedBytes:(pages-free)*size,allocatedBytes:pages*size}});
+  });
+  router.get('/:symbol/plan',(req,res)=>{
+    const symbol=req.params.symbol,days=Number(req.query.days||30);
+    if(!eligible(symbol)||!Number.isInteger(days)||days<1||days>365)return res.status(400).json({message:'نماد یا بازه معتبر نیست.'});
+    const to=Math.floor(Date.now()/60000)*60-60,from=to-days*86400+60;
+    const times=db.prepare("SELECT open_time FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,from,to).map(r=>r.open_time);
+    const suppressed=db.prepare("SELECT from_time AS 'from',to_time AS 'to' FROM history_unavailable_ranges WHERE source='wallex' AND symbol=? AND retry_after>? AND to_time>=? AND from_time<=?").all(symbol,Math.floor(Date.now()/1000),from,to);
+    const windows=missingRanges(times,from,to,suppressed);
+    res.json({existingCandles:times.length,requestedCandles:days*1440,newCandidates:windows.reduce((n,r)=>n+(r.to-r.from)/60+1,0),networkRequests:windows.length,deferredGaps:suppressed.length});
   });
   router.post('/:symbol/preferences',(req,res)=>{
     const symbol=req.params.symbol,m=eligible(symbol),{enabled,tradeType,notes}=req.body;
     if(!m)return res.status(400).json({message:'نماد خارج از فهرست مجاز است.'});
+    if(active&&db.prepare('SELECT symbol FROM knowledge_jobs WHERE id=?').get(active.id)?.symbol===symbol)return res.status(409).json({message:'تا پایان پردازش این ارز، تغییر یادداشت را ذخیره نکنید.'});
     if(typeof enabled!=='boolean'||!['margin','spot'].includes(tradeType)||typeof notes!=='string'||notes.length>3000)return res.status(400).json({message:'تنظیمات معتبر نیست؛ یادداشت حداکثر ۳۰۰۰ کاراکتر.'});
     if(enabled&&tradeType!=='margin')return res.status(400).json({message:'طبق سیاست فعلی، فعال‌سازی مشارکت فقط برای تعهدی تومانی مجاز است؛ معمولی فقط برای پژوهش ذخیره می‌شود.'});
     if(tradeType==='spot'&&!m.spotAvailable)return res.status(400).json({message:'بازار معمولی برای این ارز موجود نیست.'});
     db.exec('BEGIN');
     try {
       db.prepare('INSERT OR REPLACE INTO coin_preferences VALUES(?,?,?,?,?)').run(symbol,Number(enabled),tradeType,notes,new Date().toISOString());
-      db.prepare("DELETE FROM knowledge_vectors WHERE document_id IN (SELECT id FROM knowledge_documents WHERE symbol=? AND kind='strategy_note')").run(symbol);
-      db.prepare("DELETE FROM knowledge_documents WHERE symbol=? AND kind='strategy_note'").run(symbol);
-      for(const d of buildDocuments(symbol,[],notes)) db.prepare('INSERT INTO knowledge_documents(symbol,kind,start_time,end_time,text,hash,created_at) VALUES(?,?,?,?,?,?,?)').run(symbol,d.kind,d.start,d.end,d.text,d.hash,new Date().toISOString());
+      if(notes.trim())saveDocuments(db,symbol,buildDocuments(symbol,[],notes));
+      else{db.prepare("DELETE FROM knowledge_vectors WHERE document_id IN (SELECT id FROM knowledge_documents WHERE symbol=? AND kind='strategy_note')").run(symbol);db.prepare("DELETE FROM knowledge_documents WHERE symbol=? AND kind='strategy_note'").run(symbol);}
       db.exec('COMMIT');
     }catch(e){db.exec('ROLLBACK');return res.status(500).json({message:'ذخیرهٔ یادداشت انجام نشد.'});}
     res.json({ok:true,executionAllowed:false});
