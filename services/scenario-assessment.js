@@ -16,7 +16,7 @@ export function assessScenario({durationMinutes,risk,targetPercent,symbols,histo
  if(durationMinutes<=10&&targetPercent>=3&&risk<=1)grade=10;
  if(durationMinutes<=5&&targetPercent>=10)grade=10;
  const excludedFromGoalScore=grade!==null&&grade>=8;
- const cohort=previous.filter(r=>['completed','target_reached','halted'].includes(r.status)&&r.settings.to<=from&&r.settings.risk===risk&&r.settings.model===model&&r.settings.promptHash===promptHash&&(r.settings.durationMinutes??r.settings.days*1440)===durationMinutes&&Math.abs(r.settings.targetPercent-targetPercent)<.001&&[...r.settings.symbols].sort().join() === [...symbols].sort().join()&&!r.settings.assessment?.excludedFromGoalScore).sort((a,b)=>a.settings.from-b.settings.from);
+ const cohort=previous.filter(r=>['completed','target_reached','halted'].includes(r.status)&&r.settings.purpose!=='execution_check'&&r.settings.to<=from&&r.settings.risk===risk&&r.settings.model===model&&r.settings.promptHash===promptHash&&(r.settings.durationMinutes??r.settings.days*1440)===durationMinutes&&Math.abs(r.settings.targetPercent-targetPercent)<.001&&[...r.settings.symbols].sort().join() === [...symbols].sort().join()&&!r.settings.assessment?.excludedFromGoalScore).sort((a,b)=>a.settings.from-b.settings.from);
  // Do not count overlapping market windows as independent trials.
  const cases=[];let lastEnd=-Infinity;for(const r of cohort)if(r.settings.from>=lastEnd){cases.push(r);lastEnd=r.settings.to}
  const wins=cases.filter(r=>r.status==='target_reached'&&r.state.equity>=5000000*(1+targetPercent/100)).length,n=cases.length;

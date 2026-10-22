@@ -36,3 +36,5 @@ test('challenge/risk inconsistencies are rejected', () => {
   assert.throws(() => readConfig({ CHALLENGE_END_AT: '2026-10-22T12:00:00' }), /timezone/);
   assert.throws(() => readConfig({ CHALLENGE_START_AT: '2026-10-23T12:00:00Z', CHALLENGE_END_AT: '2026-10-22T12:00:00Z' }), /after/);
 });
+
+test('zero disables application token/call ceilings and negative limits remain invalid',()=>{const c=readConfig({});assert.equal(c.agent.maxTokensPerDay,0);assert.equal(c.llm.maxCallsPerDay,0);assert.throws(()=>readConfig({AGENT_MAX_TOKENS_PER_DAY:'-1'}));assert.throws(()=>readConfig({LLM_MAX_CALLS_PER_DAY:'-1'}))});

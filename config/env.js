@@ -91,11 +91,11 @@ export function readConfig(env = process.env) {
       httpTimeoutMs: number('LLM_HTTP_TIMEOUT_MS', 30000, 1000, 180000),
       maxOutputTokens: number('LLM_MAX_OUTPUT_TOKENS', 1200, 1, 32768),
       maxRetries: number('LLM_MAX_RETRIES', 1, 0, 3),
-      maxCallsPerDay: number('LLM_MAX_CALLS_PER_DAY', 200, 1, 10000),
+      maxCallsPerDay: number('LLM_MAX_CALLS_PER_DAY', 0, 0, 10000),
     }),
     agent: Object.freeze({
       decisionIntervalMs: number('AGENT_DECISION_INTERVAL_MS', 60000, 1000),
-      maxTokensPerDay: number('AGENT_MAX_TOKENS_PER_DAY', 1000000, 1000, 10000000),
+      maxTokensPerDay: number('AGENT_MAX_TOKENS_PER_DAY', 0, 0, 10000000),
       strategyVersion: text('AGENT_STRATEGY_VERSION', 'vela_v1'),
       promptVersion: text('AGENT_PROMPT_VERSION', 'decision_v1'),
       saveDecisionInputs: bool('AGENT_SAVE_DECISION_INPUTS', true),
