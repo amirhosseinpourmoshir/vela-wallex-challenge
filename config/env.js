@@ -73,7 +73,7 @@ export function readConfig(env = process.env) {
       readMaxRetries: number('WALLEX_READ_MAX_RETRIES', 2, 0, 5),
       orderClientIdPrefix: prefix,
       accountPollIntervalMs: number('WALLEX_ACCOUNT_POLL_INTERVAL_MS', 15000, 1000),
-      wsEnabled: bool('WALLEX_WS_ENABLED'),
+      wsEnabled: bool('WALLEX_WS_ENABLED', true),
       wsUrl: url('WALLEX_WS_URL', 'wss://api.wallex.ir/connection/websocket', ['wss:']),
       wsReconnectMinMs: number('WALLEX_WS_RECONNECT_MIN_MS', 1000, 100),
       wsReconnectMaxMs: number('WALLEX_WS_RECONNECT_MAX_MS', 30000, 100),
@@ -109,6 +109,7 @@ export function readConfig(env = process.env) {
       exitBeforeEndMinutes: number('CHALLENGE_EXIT_BEFORE_END_MINUTES', 30, 1),
     }),
     trading: Object.freeze({
+      marketType: choice('TRADING_MARKET_TYPE', ['margin'], 'margin'),
       allowedSymbols: symbols('TRADING_ALLOWED_SYMBOLS'), blockedSymbols: symbols('TRADING_BLOCKED_SYMBOLS'),
       quoteAsset: choice('TRADING_QUOTE_ASSET', ['TMN'], 'TMN'),
       orderType: choice('TRADING_ORDER_TYPE', ['LIMIT'], 'LIMIT'),
@@ -123,6 +124,11 @@ export function readConfig(env = process.env) {
       maxSlippageBps: number('RISK_MAX_SLIPPAGE_BPS', 0, 0, 10000),
       requireVerifiedFees: bool('RISK_REQUIRE_VERIFIED_FEES', true),
     }),
+    embedding: Object.freeze({
+      model: choice('EMBEDDING_MODEL', ['text-embedding-3-small', 'text-embedding-3-large'], 'text-embedding-3-small'),
+      batchSize: number('EMBEDDING_BATCH_SIZE', 8, 1, 16),
+      maxDocuments: number('EMBEDDING_MAX_DOCUMENTS_PER_JOB', 100, 1, 365),
+    }),
   };
   if (config.wallex.baseUrl !== 'https://api.wallex.ir') throw new Error('WALLEX_API_BASE_URL: expected official https://api.wallex.ir');
   if (config.wallex.wsUrl !== 'wss://api.wallex.ir/connection/websocket') throw new Error('WALLEX_WS_URL: expected official Centrifugo V2 endpoint without trailing slash');
@@ -131,8 +137,8 @@ export function readConfig(env = process.env) {
   if (config.trading.allowedSymbols.some(s => config.trading.blockedSymbols.includes(s))) throw new Error('Allowed and blocked market lists overlap');
   if (config.risk.maxOrderTmn > config.risk.maxTotalExposureTmn || config.risk.maxTotalExposureTmn > config.challenge.initialCapitalTmn) throw new Error('Risk caps must satisfy: order <= exposure <= initial capital');
   // No engine is implemented in this version: never imply flags activate real trading.
-  if (config.app.mode !== 'demo' || config.app.agentEnabled || config.app.liveTradingEnabled || config.wallex.wsEnabled || config.mcp.enabled) {
-    throw new Error('This scaffold only supports demo with AGENT_ENABLED, LIVE_TRADING_ENABLED, WALLEX_WS_ENABLED and WALLEX_MCP_ENABLED=false; integration is not implemented yet');
+  if (config.app.mode !== 'demo' || config.app.agentEnabled || config.app.liveTradingEnabled || config.mcp.enabled) {
+    throw new Error('This scaffold only supports demo with AGENT_ENABLED, LIVE_TRADING_ENABLED and WALLEX_MCP_ENABLED=false; integration is not implemented yet');
   }
   return Object.freeze(config);
 }

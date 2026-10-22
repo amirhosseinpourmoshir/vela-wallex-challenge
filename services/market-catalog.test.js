@@ -22,3 +22,11 @@ test('an empty database returns no sample or unrestricted markets',()=>{
   assert.deepEqual(readMarketCatalog(db).markets,[]);
   db.close();
 });
+
+test('margin policy requires TMN, explicit margin metadata, active margin membership and package permission',()=>{
+  const markets=[{...market,is_margin:true},{...market,symbol:'ETHTMN',is_margin:false},{...market,symbol:'BTCUSDT',quote_asset:'USDT',is_margin:true},{...market,symbol:'SOLTMN',is_margin:true}];
+  const active=[{symbol:'BTCTMN',quote:'TMN'},{symbol:'BTCUSDT',quote:'USDT'},{symbol:'SOLTMN',quote:'TMN'}];
+  const result=allowedMarketRows(markets,['SOLTMN'],[],active);
+  assert.deepEqual(result.map(m=>m.symbol),['BTCTMN']);assert.equal(result[0].tradeType,'margin');
+  assert.throws(()=>allowedMarketRows(markets,[],[],[]),/margin market/);
+});

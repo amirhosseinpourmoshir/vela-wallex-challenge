@@ -1,15 +1,18 @@
-export function allowedMarketRows(markets, unavailableMarkets, extraBlocked = []) {
+export function allowedMarketRows(markets, unavailableMarkets, extraBlocked = [], marginMarkets = null) {
   if (!Array.isArray(markets) || !markets.length) throw new Error('Invalid market catalog');
   if (!Array.isArray(unavailableMarkets) || unavailableMarkets.some(s => typeof s !== 'string' || !/^[A-Z0-9_-]+$/.test(s))) throw new Error('Invalid package denylist; refusing to assume all markets are allowed');
   const denied = new Set([...unavailableMarkets, ...extraBlocked]);
   const seen = new Set();
   const rows = [];
+  if (marginMarkets !== null && (!Array.isArray(marginMarkets) || !marginMarkets.length)) throw new Error('Invalid margin market list');
+  const margin = marginMarkets && new Map(marginMarkets.filter(m=>m.quote==='TMN').map(m=>[m.symbol,m]));
   for (const m of markets) {
-    if (m.is_spot !== true || denied.has(m.symbol)) continue;
+    if (denied.has(m.symbol)) continue;
+    if (margin ? !(m.is_margin === true && m.quote_asset === 'TMN' && margin.has(m.symbol)) : m.is_spot !== true) continue;
     if (!/^[A-Z0-9_-]+$/.test(m.symbol) || !['TMN', 'USDT'].includes(m.quote_asset) || !m.base_asset || seen.has(m.symbol)) throw new Error('Unexpected market metadata');
     if (!Number.isInteger(m.amount_precision) || !Number.isInteger(m.price_precision)) throw new Error('Missing market precision');
     seen.add(m.symbol);
-    rows.push({ symbol: m.symbol, base: m.base_asset, quote: m.quote_asset, name: m.fa_base_asset || m.base_asset, price: String(m.price), change24h: Number.isFinite(Number(m.change_24h)) ? Number(m.change_24h) : null, amountPrecision: m.amount_precision, pricePrecision: m.price_precision });
+    rows.push({ symbol: m.symbol, base: m.base_asset, quote: m.quote_asset, name: m.fa_base_asset || m.base_asset, price: String(m.price), change24h: Number.isFinite(Number(m.change_24h)) ? Number(m.change_24h) : null, amountPrecision: m.amount_precision, pricePrecision: m.price_precision, tradeType: margin ? 'margin' : 'spot', marginRules: margin ? margin.get(m.symbol) : null, spotAvailable: m.is_spot === true });
   }
   if (!rows.length) throw new Error('No markets remain after package restrictions');
   return rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -24,11 +27,16 @@ export function initMarketCatalog(db) {
     package_title TEXT NOT NULL, account_match TEXT NOT NULL, total_markets INTEGER NOT NULL,
     excluded_count INTEGER NOT NULL, warning TEXT NOT NULL
   );`);
+  const columns=new Set(db.prepare('PRAGMA table_info(challenge_markets)').all().map(c=>c.name));
+  if(!columns.has('trade_type')) db.exec("ALTER TABLE challenge_markets ADD COLUMN trade_type TEXT NOT NULL DEFAULT 'spot'");
+  if(!columns.has('margin_rules')) db.exec("ALTER TABLE challenge_markets ADD COLUMN margin_rules TEXT");
+  if(!columns.has('spot_available')) db.exec("ALTER TABLE challenge_markets ADD COLUMN spot_available INTEGER NOT NULL DEFAULT 0");
 }
 
 export function readMarketCatalog(db) {
   initMarketCatalog(db);
   const sync = db.prepare('SELECT checked_at AS checkedAt, package_id AS packageId, package_title AS packageTitle, account_match AS accountMatch, total_markets AS totalMarkets, excluded_count AS excludedCount, warning FROM market_catalog_sync WHERE id=1').get();
   if (!sync) return { ready: false, markets: [], message: 'ابتدا npm run markets:sync را اجرا کنید.' };
-  return { ready: true, sync, markets: db.prepare('SELECT symbol, base, quote, name, price, change_24h AS change24h, amount_precision AS amountPrecision, price_precision AS pricePrecision FROM challenge_markets ORDER BY quote DESC, symbol').all() };
+  const markets=db.prepare("SELECT symbol, base, quote, name, price, change_24h AS change24h, amount_precision AS amountPrecision, price_precision AS pricePrecision, trade_type AS tradeType, margin_rules AS marginRules, spot_available AS spotAvailable FROM challenge_markets WHERE trade_type='margin' AND quote='TMN' ORDER BY symbol").all().map(m=>({...m,marginRules:JSON.parse(m.marginRules||'null')}));
+  return { ready: markets.length>0, sync, markets, policy:'margin_tmn_only', message:markets.length?'':'فهرست تعهدی تومانی هنوز همگام نشده؛ npm run markets:sync را اجرا کنید.' };
 }
