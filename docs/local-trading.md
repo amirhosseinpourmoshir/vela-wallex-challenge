@@ -1,11 +1,44 @@
-# Local spot execution
+# موتور محلی بدون LLM
 
-Challenge policy: spot only, no leverage or naked shorts. The organizer denylist contains 345 exact pairs in `config/challenge-markets.js`; package restrictions and local restrictions are additional. The current interface retains the requested TMN quote universe. Existing history and rejected orders are preserved.
+نسخهٔ فعلی الگوریتم: `local-multiframe-v1` در `services/local-trader.js`. این مسیر مدل زبانی یا embedding را فراخوانی نمی‌کند. تست‌های zero-call و fail-closed در `live-orders.test.js` رفتار را بررسی می‌کنند.
 
-To use the local engine, select immediate mode, enable best-market selection, choose the local watcher, and start a new explicitly authorized session. Existing sessions are not converted automatically.
+## فعال‌سازی
 
-`local-multiframe-v1` evaluates closed minute signals plus 5m/15m/hour context, volume participation, adverse evidence, spread, exact net stop/target economics, per-asset exposure and risk-based sizing. It ranks viable candidates deterministically and tries quote validation before choosing. Structural sells are limited to acquired session holdings. The local path does not call the LLM and records zero tokens, inputs, version, reasons and rankings.
+معاملهٔ سریع → انتخاب بهترین بازار → «دیده‌بان محلی · بدون مدل». ارز فعال با تاریخچه، سرمایه و ریسک تعیین کنید و مجوز مستقل جلسه را شروع کنید. جلسهٔ قبلی خودکار تبدیل به موتور جدید نمی‌شود.
 
-Local orders use LIMIT at the fresh ask for buys / bid for sells. Native MARKET requests are also routed to LIMIT before submission when Wallex reports `isMarketTypeEnable=false`. A LIMIT can remain partially or entirely unfilled. In an active automatic session its remainder is cancelled after 120 seconds; partial fills are retained and remain eligible for stop/target monitoring. Stopping the session does not cancel or close exchange orders. Server stop/target monitoring requires an active server and session.
+## زنجیرهٔ تحلیل
 
-Signals are reviewed at most once per minute. Closed-candle confirmation, execution costs, allocation and session authority remain binding; ranking alone never creates an obligation to trade. ATR-based targets are projections, not observed resistance or promised returns. This algorithm has not been validated as the best or profitable in live markets.
+۱. کندل دقیقه‌ای بسته، تازه، پیوسته و دارای تاریخچهٔ کافی بررسی می‌شود.
+۲. `rapid-strategy.js` شکست حجمی، پولبک روند، بازپس‌گیری حمایت، خروج ساختاری و در سطح ۱۰ برگشت زودهنگام را نامزد می‌کند.
+۳. ویژگی‌های ۵/۱۵دقیقه و ساعت، روند میانگین، RSI، حجم، ATR، حمایت و مقاومت به موتور محلی می‌رسند.
+۴. برای سطوح بالا، بازیابی پنج‌دقیقه‌ای همراه قیمت و حجم می‌تواند مستقل از نامزد کامل دقیقه‌ای بررسی شود؛ قیمت ثابت یا حجم صفر الزام به ورود نمی‌سازد.
+۵. شواهد مخالف به warning تبدیل می‌شوند؛ فقدان داده، نوسان غیرعادی، نسبت خالص نامناسب یا حداقل سفارش، blocker هستند.
+۶. quote هر نامزد پیش از انتخاب اعتبارسنجی می‌شود و رتبهٔ قابل‌اجرا انتخاب می‌گردد. شکست یک نامزد نباید همهٔ گزینه‌های دیگر را معتبر فرض کند.
+
+بازبینی محلی حداکثر هر دقیقه انجام می‌شود؛ timer بازار و حفاظت می‌توانند کوتاه‌تر باشند. رتبهٔ اول به معنی خرید اجباری نیست.
+
+## قواعد عددی فعلی
+
+- ورود در ATR پنج‌دقیقه‌ای بیش از ۳٪ قیمت، یا دامنهٔ آخرین کندل بیش از چهار ATR رد می‌شود.
+- خروج ساختاری از دارایی همان جلسه بر ورود مقدم است و gate نوسانِ ورود نباید مانع کاهش ریسک شود.
+- قیمت اقتصادی ورود از مظنهٔ قابل‌اجرای LIMIT است؛ نسبت کندل قدیمی به‌تنهایی کافی نیست.
+- هزینهٔ ورود، کارمزد خروج و ذخیرهٔ لغزش خروج ۵ bps در نسبت خالص منظور می‌شوند.
+- حداقل نسبت خالص در سطح ۱۰: ۱٫۲؛ در سطوح دیگر: ۱٫۵.
+- حجم سفارش کمینهٔ بودجه، وجه آزاد، سقف سهم هر ارز و بودجهٔ ریسک مبتنی بر SL است؛ quote نهایی دوباره موجودی/ذخیره/تمرکز را کنترل می‌کند.
+- ورود early probe حداکثر یک‌چهارم سقف سهم ارز را دارد. ریسک ۱۰ مجوز مصرف کل سرمایه نیست.
+
+فرمول تقریبی برای فهم اندازه‌گذاری: `حد مقدار = بودجهٔ ریسک / زیان خالص هر واحد در حد ضرر`. محاسبهٔ دقیق در `trade-economics.js` و `buildQuote` است. گردکردن، حداقل صرافی و کارمزد ممکن است طرح را رد کنند.
+
+## هدف و کیفیت شواهد
+
+برای سناریوهای rapid، هدف ممکن است projection مبتنی بر ATR باشد؛ این هدف مقاومت مشاهده‌شده یا سود پیش‌بینی‌شدهٔ قطعی نیست. fallback بازیابی از مقاومت‌های مشاهده‌شده استفاده می‌کند. warning تک‌افقی با اجماع نزولی یا اقتصاد نامناسب یکسان نیست.
+
+الگوریتم برای «بهترین در جهان» یا سودآوری زنده اعتبارسنجی نشده است. خبرِ نامعلوم به معنی نبود ریسک خبر نیست؛ این موتور فهم زبانی مستقل خبر یا آموزش وزن ندارد.
+
+## ارسال و ثبت
+
+همهٔ سفارش‌های محلی LIMIT در ask/bid جاری‌اند؛ fill تضمین نیست. مجوز review یا automatic همان کنترل مستقل سفارش است. در خودکارِ معتبر، باقیماندهٔ سریع پس از ۱۲۰ ثانیه برای لغو ارسال می‌شود.
+
+نسخه، ورودی، رتبه‌ها، هشدار/مانع، دلیل، هزینه و reviewId ذخیره می‌شوند؛ metadata آن `localDecision` است، نه تأیید ساختگی مدل. توکن این تصمیم صفر ثبت می‌شود. SL/TP سمت سرور است و به جلسهٔ فعال نیاز دارد.
+
+اگر تنظیم محلی ناقص باشد یا درخواست بخواهد موتور جلسهٔ محلی را به مدل تغییر دهد، خطا داده می‌شود؛ fallback به LLM وجود ندارد. اجرای مستقل بک‌تست مدل/embedding در بخش دیگر همچنان می‌تواند سرویس خودش را مصرف کند.
