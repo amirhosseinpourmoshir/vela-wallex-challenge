@@ -18,8 +18,8 @@ export function indicators(rows){
 export function analyze(rows,asOf){return Object.fromEntries([300,900,3600,14400].map(tf=>{const bars=aggregate(rows,tf,asOf).slice(-250);return [String(tf),{...indicators(bars),lastClosedAt:bars.length?bars.at(-1).t+tf:null,recentClosedBars:bars.slice(-6)}]}))}
 export const RISK_PROFILES=['حفاظتی','بسیار محتاط','محتاط','سنجیده','میانه','فعال','پویا','جسور','بسیار جسور','حداکثر مجاز'].map((name,i)=>({name,level:i+1,risk:Number((.001+i*.00075).toFixed(5)),allocation:Number((.1+i*.015).toFixed(3)),leverage:i+1,drawdown:Number((.02+i*.004).toFixed(3)),bookRisk:Number((.004+i*.0015).toFixed(4)),maxExposure:2,cashReserve:.15}));
 export function validateDecision(d,price,profile,maxLeverage=10){
-  if(!d||!['hold','long','short','add','reduce','protect','close'].includes(d.action)||typeof d.reason!=='string'||d.reason.length>1600)throw Error('ساختار پاسخ مدل معتبر نیست.');
-  if(d.action==='hold'||d.action==='close')return {...d,reason:d.reason.slice(0,1600)};
+  if(!d||!['hold','long','short','add','reduce','protect','close','cancel_entry'].includes(d.action)||typeof d.reason!=='string'||d.reason.length>1600)throw Error('ساختار پاسخ مدل معتبر نیست.');
+  if(d.action==='hold'||d.action==='close'||d.action==='cancel_entry')return {...d,reason:d.reason.slice(0,1600)};
   if(d.action==='reduce'){if(!Number.isFinite(d.fraction)||d.fraction<.1||d.fraction>=1)throw Error('سهم خروج پله‌ای باید بین ۱۰٪ و کمتر از ۱۰۰٪ باشد.');return d}
   if(d.action==='protect'){if(!Number.isFinite(d.stopLoss)||!Number.isFinite(d.takeProfit)||d.stopLoss<=0||d.takeProfit<=0)throw Error('حدهای محافظتی معتبر نیستند.');return d}
   if(![d.stopLoss,d.takeProfit,d.leverage,d.allocation].every(n=>typeof n==='number'&&Number.isFinite(n)))throw Error('اعداد تصمیم مدل معتبر نیست.');
