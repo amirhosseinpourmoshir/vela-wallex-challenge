@@ -61,5 +61,5 @@ export function createReviewMonitor(db,{scope,eligible,propose,expire,orders,inv
  }catch(e){res.status(400).json({message:e.message})}});
  router.post('/stop',(_,res)=>{const s=latest();if(s?.status==='watching'){db.prepare("UPDATE live_review_sessions SET status='stopped',updated_at=? WHERE id=?").run(clock(),s.id);controller?.abort();invalidate(s.id,'جلسه توسط کاربر قطع شد؛ پیشنهاد تأییدنشده رد شد.');event(s.id,'stopped','پایش مدل قطع شد؛ هیچ موقعیت صرافی با قطع پایش بسته نمی‌شود.');publish({type:'live_monitor_update',...snapshot()})}res.json(snapshot())});
  const timer=autoSchedule?setInterval(()=>void tick(),5000):null;timer?.unref();
- return {router,tick,snapshot,stop(){stopped=true;controller?.abort();if(timer)clearInterval(timer)}};
+ return {router,tick,snapshot,syncHistory:sync,stop(){stopped=true;controller?.abort();if(timer)clearInterval(timer)}};
 }
