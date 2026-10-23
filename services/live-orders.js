@@ -6,7 +6,7 @@ import {correlations} from './market-watcher.js';
 import {readFileSync} from 'node:fs';
 import {Router} from 'express';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
-import {readMarketCatalog} from './market-catalog.js';
+import {readMarketCatalog,refreshOrderPrecision} from './market-catalog.js';
 import {RISK_PROFILES,analyze} from './trader-analysis.js';
 
 const livePlaybook=readFileSync(new URL('../docs/trader-playbook.md',import.meta.url),'utf8');
@@ -67,7 +67,7 @@ export function createLiveOrders(db,config,{fetchImpl=fetch,clock=()=>Date.now()
  }
  function eligible(){return readMarketCatalog(db).markets.filter(m=>m.quote==='TMN'&&config.trading.allowedSymbols.includes(m.symbol)&&!config.trading.blockedSymbols.includes(m.symbol)&&db.prepare('SELECT 1 FROM coin_preferences WHERE symbol=? AND enabled=1').get(m.symbol))}
  async function environment(symbol){
-  const local=eligible().find(m=>m.symbol===symbol);if(!local)throw Error('این ارز در فهرست فعال و مجاز نیست.');
+  let local=eligible().find(m=>m.symbol===symbol);if(!local)throw Error('این ارز در فهرست فعال و مجاز نیست.');
   const [accounts,wallet,fees,publicMarkets,catalog,marginMarkets,depth,positions,openOrders,packageDetail]=await Promise.all([
    api('/sub-accounts'),api('/v1/account/balances-detail'),api('/v1/account/fee'),api('/v1/markets',{auth:false}),api('/hector/web/v1/markets',{auth:false}),api('/margin-trade/v1/public/markets',{auth:false}),api('/v1/depth?symbol='+encodeURIComponent(symbol),{auth:false}),api('/margin-trade/v1/positions?active=true'),api('/v1/account/openOrders?per_page=100'),api('/v1/prop/packages/'+encodeURIComponent(config.wallex.packageId),{auth:false})]);
   const account=Array.isArray(accounts)?accounts.find(a=>a.clientId===config.wallex.subAccountId&&a.type==='prop'):null;
@@ -75,7 +75,7 @@ export function createLiveOrders(db,config,{fetchImpl=fetch,clock=()=>Date.now()
   if(packageDetail?.detail?.title!==account.title||!Array.isArray(packageDetail.unavailableMarkets)||packageDetail.unavailableMarkets.includes(symbol))throw Error('محدودهٔ عمومی طرح اجازهٔ این بازار را تأیید نکرد.');
   const market=publicMarkets?.symbols?.[symbol]||publicMarkets?.[symbol],flags=catalog?.markets?.find(m=>m.symbol===symbol),margin=Array.isArray(marginMarkets)?marginMarkets.find(m=>m.symbol===symbol):null;
   if(!market||!flags||flags.quote_asset!=='TMN')throw Error('مشخصات تازهٔ بازار در دسترس نیست.');
-  if(Number(market.baseAssetPrecision)!==local.amountPrecision||Number(market.quotePrecision)!==local.pricePrecision)throw Error('دقت تازهٔ بازار با فهرست محلی فرق دارد؛ بازارها را همگام کنید.');
+  local=refreshOrderPrecision(db,local,market);
   const bid=positive(depth?.bid?.[0]?.price),ask=positive(depth?.ask?.[0]?.price);if(ask<bid)throw Error('دفتر سفارش ناسازگار است.');
   const rate=fees?.[symbol];if(!rate||!Number.isFinite(Number(rate.takerFeeRate))||Number(rate.takerFeeRate)<0||Number(rate.takerFeeRate)>.1)throw Error('کارمزد معتبر همین بازار در دسترس نیست.');
   if(!Array.isArray(positions))throw Error('ساختار موقعیت‌های حساب قابل تأیید نیست.');

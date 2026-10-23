@@ -11,7 +11,7 @@ async function fixture({enabled=true,historyReply=null,unfilledMargin=false,reme
  if(path==='/sub-accounts')result=[{clientId:'scope-account',type:'prop',title:'challenge',isActive:true,isSuspend:false}];
  else if(path==='/v1/account/balances-detail')result={TMN:{total:'5000000',available:'5000000'},BTC:{total:'0',available:'0',stats:{TMN:{estimatedValue:'0'}}}};
  else if(path==='/v1/account/fee')result={BTCTMN:{takerFeeRate:'.003'},ADATMN:{takerFeeRate:'.003'}};
- else if(path==='/v1/markets')result={symbols:Object.fromEntries(['BTCTMN','ADATMN'].map(symbol=>[symbol,{minNotional:'50000',minQty:'.000001',baseAssetPrecision:6,quotePrecision:2}]))};
+ else if(path==='/v1/markets')result={symbols:Object.fromEntries(['BTCTMN','ADATMN'].map(symbol=>[symbol,{symbol,baseAsset:symbol==='BTCTMN'?'BTC':'ADA',quoteAsset:'TMN',minNotional:'50000',minQty:'.000001',baseAssetPrecision:8,quotePrecision:8,stepSize:6,tickSize:2}]))};
  else if(path==='/hector/web/v1/markets')result={markets:['BTCTMN','ADATMN'].map(symbol=>({symbol,quote_asset:'TMN',is_spot:true,is_margin:true}))};
  else if(path==='/margin-trade/v1/public/markets')result=['BTCTMN','ADATMN'].map(symbol=>({symbol,min_risk_coef:'1',max_risk_coef:'10',risk_coef_step:'1'}));
  else if(path==='/v1/depth')result={bid:[{price:'99.9'}],ask:[{price:'100'}]};

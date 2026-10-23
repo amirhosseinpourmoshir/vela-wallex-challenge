@@ -40,3 +40,18 @@ export function readMarketCatalog(db) {
   const markets=db.prepare("SELECT symbol, base, quote, name, price, change_24h AS change24h, amount_precision AS amountPrecision, price_precision AS pricePrecision, trade_type AS tradeType, margin_rules AS marginRules, spot_available AS spotAvailable FROM challenge_markets WHERE trade_type='margin' AND quote='TMN' ORDER BY symbol").all().map(m=>({...m,marginRules:JSON.parse(m.marginRules||'null')}));
   return { ready: markets.length>0, sync, markets, policy:'margin_tmn_only', message:markets.length?'':'فهرست تعهدی تومانی هنوز همگام نشده؛ npm run markets:sync را اجرا کنید.' };
 }
+
+// Order increments differ from asset accounting precision (e.g. XLM: 1 vs 8).
+export function orderPrecision(market) {
+  const amountPrecision=market?.stepSize, pricePrecision=market?.tickSize;
+  if (![amountPrecision,pricePrecision].every(n=>typeof n==='number'&&Number.isInteger(n)&&n>=0&&n<=12)) throw new Error('دقت حجم یا قیمت سفارش از والکس معتبر دریافت نشد.');
+  return {amountPrecision,pricePrecision};
+}
+
+export function refreshOrderPrecision(db, local, market) {
+  if(market?.symbol!==local.symbol || market.baseAsset!==local.base || market.quoteAsset!==local.quote) throw new Error('هویت تازهٔ بازار با فهرست مجاز سازگار نیست.');
+  const precision=orderPrecision(market);
+  if(local.amountPrecision!==precision.amountPrecision||local.pricePrecision!==precision.pricePrecision)
+    db.prepare('UPDATE challenge_markets SET amount_precision=?,price_precision=? WHERE symbol=?').run(precision.amountPrecision,precision.pricePrecision,local.symbol);
+  return {...local,...precision};
+}
