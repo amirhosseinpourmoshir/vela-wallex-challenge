@@ -139,9 +139,10 @@ export function readConfig(env = process.env) {
   if (config.trading.allowedSymbols.some(s => config.trading.blockedSymbols.includes(s))) throw new Error('Allowed and blocked market lists overlap');
   if (config.risk.maxOrderTmn > config.risk.maxTotalExposureTmn || config.risk.maxTotalExposureTmn > config.challenge.initialCapitalTmn) throw new Error('Risk caps must satisfy: order <= exposure <= initial capital');
   // Autonomous live trading stays disabled; reviewed orders use a separate explicit feature.
-  if (config.app.mode !== 'demo' || config.app.agentEnabled || config.app.liveTradingEnabled || config.mcp.enabled) {
-    throw new Error('This scaffold only supports demo with AGENT_ENABLED, LIVE_TRADING_ENABLED and WALLEX_MCP_ENABLED=false; integration is not implemented yet');
+  if (config.app.mode !== 'demo' || config.app.agentEnabled || config.app.liveTradingEnabled) {
+    throw new Error('This scaffold only supports demo; legacy AGENT_ENABLED and LIVE_TRADING_ENABLED switches are not implemented; use the session-based review engine');
   }
+  if(config.mcp.enabled){const endpoint=new URL(config.mcp.serverUrl||config.wallex.baseUrl+'/mcp');if(endpoint.origin!==new URL(config.wallex.baseUrl).origin||endpoint.pathname!=='/mcp'||endpoint.search||endpoint.hash)throw new Error('MCP endpoint must be the Wallex origin and /mcp path');if(!config.mcp.serverUrl)throw new Error('WALLEX_MCP_SERVER_URL is required');}
   return Object.freeze(config);
 }
 

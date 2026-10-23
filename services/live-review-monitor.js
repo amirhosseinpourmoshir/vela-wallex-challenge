@@ -1,6 +1,7 @@
+import {liveWake} from './live-efficiency.js';
 import {Router} from 'express';
 import {analyze} from './trader-analysis.js';
-import {inspectMarket,wakePolicy} from './market-watcher.js';
+import {inspectMarket} from './market-watcher.js';
 import {normalizeCandles} from './history.js';
 import {missingRanges} from './incremental-history.js';
 
@@ -47,9 +48,9 @@ export function createReviewMonitor(db,{scope,eligible,propose,expire,orders,inv
    if(pending.length){s.state.phase='waiting_approval';s.state.message='پیشنهاد در انتظار تأیید شماست؛ پایان مهلت فقط آن را منقضی می‌کند.';save(s);return}
    if(!ready.length){s.state.phase='waiting_data';s.state.message='کندل بستهٔ کافی و تازه نداریم؛ همگام‌سازی افزایشی ادامه دارد.';save(s);return}
    const candidate=ready.sort((a,b)=>b.watch.score-a.watch.score)[0],last=s.state.lastReview||0;
-   const wake=wakePolicy({asOf,lastReview:last,lastGlobalReview:last,lastFingerprint:s.state.lastFingerprint||'',fingerprint:candidate.watch.fingerprint,score:candidate.watch.score,bootstrap:!last,horizonMinutes:60});
-   if(!wake.wake){s.state.phase='watching';s.state.suppressed=(s.state.suppressed||0)+1;s.state.message='دیده‌بان فعال است؛ پالس تازه یا موعد بازبینی بعدی را بررسی می‌کند.';save(s);return}
-   s.state.lastReview=asOf;s.state.lastFingerprint=candidate.watch.fingerprint;s.state.phase='analyzing';s.state.message='مدل بازارها و پوزیشن‌ها را بررسی می‌کند؛ هنوز سفارش ارسال نمی‌شود.';save(s);event(s.id,'model_called','فراخوانی مدل برای بازبینی',{trigger:wake.reason,symbol:candidate.symbol,signals:candidate.watch.reasons});
+   const wake=liveWake({asOf,lastReview:last,lastFingerprint:s.state.lastFingerprint||'',fingerprint:candidate.symbol+':'+candidate.watch.fingerprint,score:candidate.watch.score,price:assets[candidate.symbol].lastPrice,referencePrice:s.state.reviewPrices?.[candidate.symbol]||0});
+   if(!wake.wake){s.state.phase='watching';s.state.suppressed=(s.state.suppressed||0)+1;s.state.message='پایش محلی فعال است؛ مدل فقط برای تغییر معنادار پس از ۵ دقیقه یا بازبینی دوره‌ای ۱۵دقیقه‌ای فراخوانی می‌شود.';save(s);return}
+   s.state.lastReview=asOf;s.state.lastFingerprint=candidate.symbol+':'+candidate.watch.fingerprint;s.state.reviewPrices=Object.fromEntries(Object.entries(assets).map(([symbol,a])=>[symbol,a.lastPrice]));s.state.phase='analyzing';s.state.message='مدل بازارها و پوزیشن‌ها را بررسی می‌کند؛ هنوز سفارش ارسال نمی‌شود.';save(s);event(s.id,'model_called','فراخوانی مدل برای بازبینی',{trigger:wake.reason,symbol:candidate.symbol,signals:candidate.watch.reasons});
    const result=await propose({...s.settings,autoSelect:true,symbols,monitorSessionId:s.id,trigger:{reason:wake.reason,symbol:candidate.symbol,signals:candidate.watch.reasons}},{signal,isCurrent:()=>!!current(s.id)});
    if(!current(s.id))return;s.state.reviews=(s.state.reviews||0)+1;if(!result.hold&&s.settings.executionMode==='automatic'){const order=await executeAutomatic(s,result);if(current(s.id)){s.state.phase='watching';s.state.message='سفارش با مجوز محدود خودکار ارسال شد؛ بدون نیاز به تأیید جداگانه.';event(s.id,'automatic_submitted',s.state.message,{orderId:order.id,reviewId:result.reviewId});save(s)}return}s.state.phase=result.hold?'watching':'waiting_approval';s.state.message=result.hold?result.reason:'پیشنهاد مدل آماده است؛ فقط با تأیید شما ارسال می‌شود.';
    event(s.id,result.hold?'hold':'proposal',result.hold?result.reason:result.quote.reason,{orderId:result.id||null,reviewId:result.reviewId||null});save(s);

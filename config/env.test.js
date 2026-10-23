@@ -38,3 +38,5 @@ test('challenge/risk inconsistencies are rejected', () => {
 });
 
 test('zero disables application token/call ceilings and negative limits remain invalid',()=>{const c=readConfig({});assert.equal(c.agent.maxTokensPerDay,0);assert.equal(c.llm.maxCallsPerDay,0);assert.throws(()=>readConfig({AGENT_MAX_TOKENS_PER_DAY:'-1'}));assert.throws(()=>readConfig({LLM_MAX_CALLS_PER_DAY:'-1'}))});
+
+test('official same-origin read-only MCP endpoint is allowed, other origins rejected',()=>{assert.equal(readConfig({WALLEX_MCP_ENABLED:'true',WALLEX_MCP_SERVER_URL:'https://api.wallex.ir/mcp'}).mcp.enabled,true);assert.throws(()=>readConfig({WALLEX_MCP_ENABLED:'true',WALLEX_MCP_SERVER_URL:'https://other.example/mcp'}),/MCP endpoint/)});
