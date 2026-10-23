@@ -20,7 +20,13 @@ export function createReviewMonitor(db,{scope,eligible,propose,expire,orders,inv
  async function sync(symbol,signal){
   const to=Math.floor(clock()/60000)*60-60,from=to-5*86400+60;
   const times=db.prepare("SELECT open_time FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time BETWEEN ? AND ? ORDER BY open_time").all(symbol,from,to).map(r=>r.open_time);
-  const windows=missingRanges(times,from,to).sort((a,b)=>b.from-a.from).slice(0,2);
+  const latest=db.prepare("SELECT MAX(open_time) AS t FROM historical_candles WHERE source='wallex' AND symbol=? AND interval_seconds=60 AND open_time<=?").get(symbol,to).t;
+  const tailFrom=latest==null?from:latest+60;
+  // Fetch every newly closed minute since the last stored candle. Older holes
+  // are bounded separately so they cannot displace the current market tail.
+  const tail=missingRanges([],tailFrom,to).reverse();
+  const backfill=missingRanges(times,from,to).filter(w=>w.to<tailFrom).sort((a,b)=>b.from-a.from).slice(0,2);
+  const windows=[...tail,...backfill];
   for(const window of windows){signal.throwIfAborted();const url=new URL(config.wallex.baseUrl+'/v1/udf/history');url.search=new URLSearchParams({symbol,resolution:'1',from:String(window.from),to:String(window.to)});
    const response=await fetchImpl(url,{method:'GET',redirect:'error',signal:AbortSignal.any([signal,AbortSignal.timeout(config.wallex.httpTimeoutMs)])});if(!response.ok)throw Error('تاریخچهٔ تازه دریافت نشد.');const data=normalizeCandles(await response.json(),window.from,window.to);signal.throwIfAborted();
    const put=db.prepare('INSERT OR IGNORE INTO historical_candles VALUES(?,?,?,?,?,?,?,?,?,?)');db.exec('SAVEPOINT live_history');try{for(const c of data.candles){const inserted=put.run('wallex',symbol,60,c.t,c.o,c.h,c.l,c.c,c.v,new Date(clock()).toISOString());if(inserted.changes)db.prepare('INSERT OR IGNORE INTO history_dirty_days VALUES(?,?)').run(symbol,Math.floor(c.t/86400)*86400);}db.exec('RELEASE live_history')}catch(e){db.exec('ROLLBACK TO live_history');db.exec('RELEASE live_history');throw e}
