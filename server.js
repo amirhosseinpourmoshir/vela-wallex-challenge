@@ -29,6 +29,7 @@ const agent=createAgent(db,config,{onUpdate:message=>agentStream?.publish(messag
 app.use('/api/agent',agent.router);
 const liveOrders=createLiveOrders(db,config,{onUpdate:message=>{for(const socket of wss.clients)if(socket.readyState===1)socket.send(JSON.stringify(message))}});
 app.use('/api/live',liveOrders.router);
+app.use('/api/review',liveOrders.router);
 app.get('/api/markets', (_,res)=>{res.set('Cache-Control','no-store');res.json(liveMarkets.snapshot());});
 app.get('/api/status',(_,res)=>res.json({agentImplemented:true,liveTradingEnabled:false,liveOrderReviewEnabled:config.reviewTrading.enabled,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
 app.post('/api/pause',(req,res)=>{if(typeof req.body.paused!=='boolean')return res.status(400).json({error:'paused must be boolean'});db.prepare('UPDATE settings SET paused=? WHERE id=1').run(Number(req.body.paused));res.json({paused:req.body.paused,demo:true});});
@@ -39,7 +40,7 @@ const liveMarkets=createLiveMarkets(db,config,message=>{const json=JSON.stringif
 wss.on('connection',socket=>socket.send(JSON.stringify({type:'market_state',...liveMarkets.snapshot()})));
 const timer=setInterval(()=>{for(const socket of wss.clients)if(socket.readyState===1)socket.send(JSON.stringify({type:'heartbeat',time:Date.now(),demo:true}));},10000);
 if(config.app.nodeEnv==='production'){app.use(express.static(path.join(root,'dist')));app.get('/{*path}',(_,res)=>res.sendFile(path.join(root,'dist','index.html')));}
-else{const {createServer:createViteServer}=await import('vite');const vite=await createViteServer({server:{middlewareMode:true},appType:'spa'});app.use(vite.middlewares);}
+else{const {createServer:createViteServer}=await import('vite');const vite=await createViteServer({define:{__VELA_REVIEW_API_INSTALLED__:'true'},server:{middlewareMode:true},appType:'spa'});app.use(vite.middlewares);}
 server.listen(config.app.port,'127.0.0.1',()=>console.log(`Vela ready: http://localhost:${config.app.port}`));
 function shutdown(){clearInterval(timer);liveMarkets.stop();knowledge.stop();agent.stop();liveOrders.stop();for(const socket of wss.clients)socket.terminate();wss.close();server.close(()=>{db.close();process.exit(0);});}
 process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
