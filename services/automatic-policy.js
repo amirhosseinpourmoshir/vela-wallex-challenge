@@ -10,6 +10,7 @@ export function prepareAutomaticPolicy(settings,body,e,now){
 }
 export function authorizeAutomaticOrder(session,order,e,allOrders,now){
  const policy=session.settings.automatic,q=order.quote;
+ if(q.entryType==='market'&&session.settings.entryMode!=='market')throw Error('سفارش فوری در مجوز این جلسه فعال نیست.');
  if(session.status!=='watching'||!policy||session.settings.executionMode!=='automatic'||now>=policy.expiresAt)throw Error('مجوز اجرای خودکار فعال نیست یا منقضی شده است.');
  if(q.monitorSessionId!==session.id||!q.model?.reviewId||!session.settings.symbols.includes(q.symbol))throw Error('سفارش متعلق به این جلسه و تصمیم مدل نیست.');
  if(q.profile.level!==session.settings.riskLevel)throw Error('پروفایل سفارش با مجوز جلسه متفاوت است.');
