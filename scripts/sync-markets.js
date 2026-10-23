@@ -40,8 +40,8 @@ if (config.wallex.packageId && String(packageId) !== config.wallex.packageId) th
 const detail = await get('/v1/prop/packages/' + encodeURIComponent(packageId));
 if (detail.detail?.title !== account.title) throw new Error('Package title does not match challenge account');
 const catalog = await get('/hector/web/v1/markets');
-const marginMarkets = await get('/margin-trade/v1/public/markets');
-const rows = allowedMarketRows(catalog.markets, detail.unavailableMarkets, config.trading.blockedSymbols, marginMarkets);
+const marginMarkets = config.trading.challengeSpotOnly?null:await get('/margin-trade/v1/public/markets');
+const rows = allowedMarketRows(catalog.markets, detail.unavailableMarkets, config.trading.blockedSymbols, marginMarkets).filter(m=>m.quote==='TMN');
 const now = new Date().toISOString();
 mkdirSync(path.dirname(config.app.sqlitePath), { recursive: true });
 const db = new DatabaseSync(config.app.sqlitePath);
@@ -52,19 +52,20 @@ try {
   db.exec('DELETE FROM challenge_markets');
   const insert = db.prepare('INSERT INTO challenge_markets (symbol,base,quote,name,price,change_24h,amount_precision,price_precision,trade_type,margin_rules,spot_available) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
   for (const m of rows) insert.run(m.symbol, m.base, m.quote, m.name, m.price, m.change24h, m.amountPrecision, m.pricePrecision, m.tradeType, JSON.stringify(m.marginRules), Number(m.spotAvailable));
+  if(config.trading.challengeSpotOnly&&db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='coin_preferences'").get())db.prepare("UPDATE coin_preferences SET trade_type='spot'").run();
   db.prepare('INSERT OR REPLACE INTO market_catalog_sync VALUES(1,?,?,?,?,?,?,?)').run(now, String(packageId), detail.detail.title, accountMatch, catalog.markets.length, detail.unavailableMarkets.length, warning);
   db.exec('COMMIT');
 } catch (error) { db.exec('ROLLBACK'); throw error; } finally { db.close(); }
 // Store reference IDs locally only. Explicit switches keep the execution engine off.
 const envPath = path.join(projectRoot, '.env');
 let env = readFileSync(envPath, 'utf8');
-const settings = { WALLEX_SUB_ACCOUNT_ID: account.clientId, WALLEX_PACKAGE_ID: String(packageId), MARKET_DATA_SYMBOLS: rows.map(m => m.symbol).join(','), TRADING_ALLOWED_SYMBOLS: rows.map(m => m.symbol).join(','), TRADING_MARKET_TYPE:'margin',TRADING_QUOTE_ASSET:'TMN' };
+const settings = { WALLEX_SUB_ACCOUNT_ID: account.clientId, WALLEX_PACKAGE_ID: String(packageId), MARKET_DATA_SYMBOLS: rows.map(m => m.symbol).join(','), TRADING_ALLOWED_SYMBOLS: rows.map(m => m.symbol).join(','), TRADING_MARKET_TYPE:'spot',TRADING_QUOTE_ASSET:'TMN' };
 for (const [key, value] of Object.entries(settings)) {
   const pattern = new RegExp('^' + key + '=.*$', 'm');
   env = pattern.test(env) ? env.replace(pattern, key + '=' + value) : env + '\n' + key + '=' + value + '\n';
 }
 writeFileSync(envPath, env);
-const snapshot = { checkedAt: now, packageId, packageTitle: detail.detail.title, accountMatch, warning, source: 'https://api.wallex.ir', rule: 'is_margin=true AND active margin API membership AND quote=TMN AND NOT package/local blocked', counts: { total: rows.length, tmn: rows.length, usdt: 0 }, markets: rows };
+const snapshot = { checkedAt: now, packageId, packageTitle: detail.detail.title, accountMatch, warning, source: 'https://api.wallex.ir', rule: 'is_spot=true AND quote=TMN AND NOT package/organizer/local blocked', counts: { total: rows.length, tmn: rows.length, usdt: 0 }, markets: rows };
 mkdirSync(path.join(projectRoot,'data'),{recursive:true});
 writeFileSync(path.join(projectRoot, 'data', 'market-whitelist.json'), JSON.stringify(snapshot, null, 2));
 console.log(JSON.stringify({ checkedAt: now, packageId, packageTitle: detail.detail.title, accountMatch, warning, counts: snapshot.counts, symbols: rows.map(m => m.symbol) }, null, 2));

@@ -1,3 +1,4 @@
+import {CHALLENGE_BLOCKED_SYMBOLS} from './challenge-markets.js';
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import path from 'node:path';
@@ -111,8 +112,8 @@ export function readConfig(env = process.env) {
       exitBeforeEndMinutes: number('CHALLENGE_EXIT_BEFORE_END_MINUTES', 30, 1),
     }),
     trading: Object.freeze({
-      marketType: choice('TRADING_MARKET_TYPE', ['margin'], 'margin'),
-      allowedSymbols: symbols('TRADING_ALLOWED_SYMBOLS'), blockedSymbols: symbols('TRADING_BLOCKED_SYMBOLS'),
+      challengeSpotOnly:true,marketType:'spot',
+      allowedSymbols: symbols('TRADING_ALLOWED_SYMBOLS').filter(s=>!CHALLENGE_BLOCKED_SYMBOLS.includes(s)), blockedSymbols: [...new Set([...symbols('TRADING_BLOCKED_SYMBOLS'),...CHALLENGE_BLOCKED_SYMBOLS])],
       quoteAsset: choice('TRADING_QUOTE_ASSET', ['TMN'], 'TMN'),
       orderType: choice('TRADING_ORDER_TYPE', ['LIMIT'], 'LIMIT'),
     }),

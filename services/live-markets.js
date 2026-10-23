@@ -6,7 +6,7 @@ export function createLiveMarkets(db, config, broadcast) {
   let stopped = false, socket, reconnect, restTimer, publishTimer, restBusy = false;
   let socketConnected = false, restError = '', retry = 1000, lastRestAt = null;
   let lastFrameAt=0;
-  let catalog=readMarketCatalog(db);
+  let catalog=readMarketCatalog(db,config.trading);
   const approved = () => catalog;
   function snapshot() {
     const catalog = approved();
@@ -30,7 +30,7 @@ export function createLiveMarkets(db, config, broadcast) {
     if (restBusy || stopped) return;
     restBusy = true;
     try {
-      catalog=readMarketCatalog(db);
+      catalog=readMarketCatalog(db,config.trading);
       const response = await fetch(config.wallex.baseUrl + '/hector/web/v1/markets', { signal: AbortSignal.timeout(8000), redirect: 'error' });
       if (!response.ok) throw Error();
       const data = await response.json();

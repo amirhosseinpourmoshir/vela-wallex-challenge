@@ -33,12 +33,12 @@ export function initMarketCatalog(db) {
   if(!columns.has('spot_available')) db.exec("ALTER TABLE challenge_markets ADD COLUMN spot_available INTEGER NOT NULL DEFAULT 0");
 }
 
-export function readMarketCatalog(db) {
+export function readMarketCatalog(db,policy={}) {
   initMarketCatalog(db);
   const sync = db.prepare('SELECT checked_at AS checkedAt, package_id AS packageId, package_title AS packageTitle, account_match AS accountMatch, total_markets AS totalMarkets, excluded_count AS excludedCount, warning FROM market_catalog_sync WHERE id=1').get();
   if (!sync) return { ready: false, markets: [], message: 'ابتدا npm run markets:sync را اجرا کنید.' };
-  const markets=db.prepare("SELECT symbol, base, quote, name, price, change_24h AS change24h, amount_precision AS amountPrecision, price_precision AS pricePrecision, trade_type AS tradeType, margin_rules AS marginRules, spot_available AS spotAvailable FROM challenge_markets WHERE trade_type='margin' AND quote='TMN' ORDER BY symbol").all().map(m=>({...m,marginRules:JSON.parse(m.marginRules||'null')}));
-  return { ready: markets.length>0, sync, markets, policy:'margin_tmn_only', message:markets.length?'':'فهرست تعهدی تومانی هنوز همگام نشده؛ npm run markets:sync را اجرا کنید.' };
+  const markets=db.prepare("SELECT symbol, base, quote, name, price, change_24h AS change24h, amount_precision AS amountPrecision, price_precision AS pricePrecision, trade_type AS tradeType, margin_rules AS marginRules, spot_available AS spotAvailable FROM challenge_markets WHERE quote='TMN' ORDER BY symbol").all().filter(m=>policy.challengeSpotOnly?m.spotAvailable&&!(policy.blockedSymbols||[]).includes(m.symbol):m.tradeType==='margin').map(m=>({...m,tradeType:policy.challengeSpotOnly?'spot':m.tradeType,marginRules:policy.challengeSpotOnly?null:JSON.parse(m.marginRules||'null')}));
+  return { ready: markets.length>0, sync, markets, policy:policy.challengeSpotOnly?'spot_tmn_only':'margin_tmn_only', message:markets.length?'':'فهرست بازارهای مجاز هنوز همگام نشده؛ npm run markets:sync را اجرا کنید.' };
 }
 
 // Order increments differ from asset accounting precision (e.g. XLM: 1 vs 8).

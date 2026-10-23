@@ -31,7 +31,7 @@ export async function embedTexts(config,texts,fetchImpl=fetch) {
 export function createKnowledge(db,config) {
   initKnowledge(db);
   let active=null, stopping=false;
-  const eligible=symbol=>readMarketCatalog(db).markets.find(m=>m.symbol===symbol);
+  const eligible=symbol=>readMarketCatalog(db,config.trading).markets.find(m=>m.symbol===symbol);
   function update(id,values) {
     const old=db.prepare('SELECT * FROM knowledge_jobs WHERE id=?').get(id);
     if(!old)return;
@@ -127,16 +127,16 @@ export function createKnowledge(db,config) {
     next();
   });
   router.get('/',(_,res)=>{
-    const rows=readMarketCatalog(db).markets.map(m=>{
-      const p=db.prepare('SELECT enabled,trade_type AS tradeType,notes FROM coin_preferences WHERE symbol=?').get(m.symbol)||{enabled:0,tradeType:'margin',notes:''};
+    const rows=readMarketCatalog(db,config.trading).markets.map(m=>{
+      const p=db.prepare('SELECT enabled,trade_type AS tradeType,notes FROM coin_preferences WHERE symbol=?').get(m.symbol)||{enabled:0,tradeType:config.trading.challengeSpotOnly?'spot':'margin',notes:''};
       const stats=db.prepare("SELECT count(*) AS candles,min(open_time) AS first,max(open_time) AS last FROM historical_candles WHERE source='wallex' AND symbol=?").get(m.symbol);
       const docs=db.prepare('SELECT count(*) AS documents FROM knowledge_documents WHERE symbol=?').get(m.symbol);
       const vectors=db.prepare('SELECT count(*) AS vectors FROM knowledge_vectors v JOIN knowledge_documents d ON d.id=v.document_id WHERE d.symbol=? AND v.model=?').get(m.symbol,config.embedding.model);
-      return {symbol:m.symbol,name:m.name,base:m.base,spotAvailable:Boolean(m.spotAvailable),...p,...stats,...docs,...vectors,executionAllowed:false,reviewedExecutionAllowed:config.reviewTrading?.enabled===true};
+      return {symbol:m.symbol,name:m.name,base:m.base,spotAvailable:Boolean(m.spotAvailable),...p,tradeType:config.trading.challengeSpotOnly?'spot':p.tradeType,...stats,...docs,...vectors,executionAllowed:false,reviewedExecutionAllowed:config.reviewTrading?.enabled===true};
     });
     const jobs=db.prepare('SELECT * FROM knowledge_jobs ORDER BY id DESC LIMIT 25').all().map(j=>({...j,report:j.report?JSON.parse(j.report):null}));
     const pages=db.prepare('PRAGMA page_count').get().page_count,free=db.prepare('PRAGMA freelist_count').get().freelist_count,size=db.prepare('PRAGMA page_size').get().page_size;
-    res.json({coins:rows,jobs,embeddingModel:config.embedding.model,policy:'margin_tmn_only',activeJob:active?.id||null,storage:{usedBytes:(pages-free)*size,allocatedBytes:pages*size}});
+    res.json({coins:rows,jobs,embeddingModel:config.embedding.model,policy:config.trading.challengeSpotOnly?'spot_tmn_only':'margin_tmn_only',activeJob:active?.id||null,storage:{usedBytes:(pages-free)*size,allocatedBytes:pages*size}});
   });
   router.get('/:symbol/plan',(req,res)=>{
     const symbol=req.params.symbol,days=Number(req.query.days||30);
@@ -153,6 +153,7 @@ export function createKnowledge(db,config) {
     if(active&&db.prepare('SELECT symbol FROM knowledge_jobs WHERE id=?').get(active.id)?.symbol===symbol)return res.status(409).json({message:'تا پایان پردازش این ارز، تغییر یادداشت را ذخیره نکنید.'});
     if(typeof enabled!=='boolean'||!['margin','spot'].includes(tradeType)||typeof notes!=='string'||notes.length>3000)return res.status(400).json({message:'تنظیمات معتبر نیست؛ یادداشت حداکثر ۳۰۰۰ کاراکتر.'});
 
+    if(config.trading.challengeSpotOnly&&tradeType!=='spot')return res.status(400).json({message:'در چالش فقط اسپات بدون اهرم مجاز است.'});
     if(tradeType==='spot'&&!m.spotAvailable)return res.status(400).json({message:'بازار معمولی برای این ارز موجود نیست.'});
     db.exec('BEGIN');
     try {

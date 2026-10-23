@@ -12,7 +12,7 @@ export function authorizeAutomaticOrder(session,order,e,allOrders,now){
  const policy=session.settings.automatic,q=order.quote;
  if(q.entryType==='market'&&session.settings.entryMode!=='market')throw Error('سفارش فوری در مجوز این جلسه فعال نیست.');
  if(session.status!=='watching'||!policy||session.settings.executionMode!=='automatic'||now>=policy.expiresAt)throw Error('مجوز اجرای خودکار فعال نیست یا منقضی شده است.');
- if(q.monitorSessionId!==session.id||!q.model?.reviewId||!session.settings.symbols.includes(q.symbol))throw Error('سفارش متعلق به این جلسه و تصمیم مدل نیست.');
+ if(q.monitorSessionId!==session.id||!(q.model?.reviewId||session.settings.bestAvailable&&session.settings.decisionEngine==='local'&&q.localDecision?.reviewId)||!session.settings.symbols.includes(q.symbol))throw Error('سفارش متعلق به این جلسه و تصمیم مدل نیست.');
  if(q.profile.level!==session.settings.riskLevel)throw Error('پروفایل سفارش با مجوز جلسه متفاوت است.');
  if(session.settings.kind!=='auto'&&q.kind!=='margin_close'&&q.kind!==session.settings.kind)throw Error('نوع معامله خارج از مجوز جلسه است.');
  const own=allOrders.filter(o=>o.id!==order.id&&o.quote.monitorSessionId===session.id),submitted=own.filter(o=>!['draft','expired','invalidated','rejected'].includes(o.status));

@@ -6,7 +6,7 @@ export function createLiveCandles(db,config,{fetchImpl=fetch,clock=Date.now}={})
  router.get('/',async(req,res)=>{
   res.set('Cache-Control','no-store');
   const symbol=String(req.query.symbol||''),minutes=Number(req.query.minutes||1);
-  const allowed=readMarketCatalog(db).markets.some(m=>m.symbol===symbol&&m.quote==='TMN'&&config.trading.allowedSymbols.includes(symbol)&&!config.trading.blockedSymbols.includes(symbol)&&db.prepare('SELECT 1 FROM coin_preferences WHERE symbol=? AND enabled=1').get(symbol));
+  const allowed=readMarketCatalog(db,config.trading).markets.some(m=>m.symbol===symbol&&m.quote==='TMN'&&config.trading.allowedSymbols.includes(symbol)&&!config.trading.blockedSymbols.includes(symbol)&&db.prepare('SELECT 1 FROM coin_preferences WHERE symbol=? AND enabled=1').get(symbol));
   if(!allowed||![1,5,15,60].includes(minutes))return res.status(400).json({message:'ارز فعال یا تایم‌فریم معتبر انتخاب کنید.'});
   const key=symbol+':'+minutes;
   try{

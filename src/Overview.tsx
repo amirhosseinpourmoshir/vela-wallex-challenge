@@ -19,7 +19,7 @@ export default function Overview({navigate}:{navigate:(page:string)=>void}){
     <div className="overview-welcome"><div><span className="overview-label"><i/> فضای کاری شما، در یک نگاه</span><h2>از نبض بازار<br/>تا آمادگی تصمیم.</h2><p>وضعیت واقعی داده‌ها و ابزارها؛ نقطهٔ شروع روز معاملاتی شما.</p><button onClick={()=>navigate('آماده‌سازی دانش')}>رفتن به مخزن دانش <ArrowLeft size={17}/></button></div><div className="overview-whale"><div/><img src="/vela-whale.png" alt="وال وِلا"/></div></div>
     {(error||loadError)&&<p className="catalog-warning" role="alert">{error||'بخشی از اطلاعات دریافت نشد؛ اطلاعات قبلی ممکن است قدیمی باشند.'}</p>}
     <AccountCapital/><div className="overview-stats">{[
-      {icon:Activity,value:data?num(data.markets.length):'—',label:'بازار تعهدی تومانی',note:data?`${num(fresh.length)} بازار با تغییر روزانهٔ تازه`:'در انتظار اطلاعات بازار'},
+      {icon:Activity,value:data?num(data.markets.length):'—',label:'بازار اسپات تومانی',note:data?`${num(fresh.length)} بازار با تغییر روزانهٔ تازه`:'در انتظار اطلاعات بازار'},
       {icon:Database,value:knowledge?num(candles):'—',label:'کندل ذخیره‌شده',note:knowledge?`تاریخچهٔ ${num(withData)} ارز، بدون تکرار`:'در انتظار مخزن داده'},
       {icon:Layers3,value:knowledge?num(vectors):'—',label:'بردار آماده',note:knowledge?`${num(Math.max(0,docs-vectors))} متن در انتظار بردارسازی`:'در انتظار حافظهٔ مدل'},
       {icon:ShieldCheck,value:'غیرفعال',label:'اجرای معاملات',note:'بک‌تست مدل آماده؛ سفارش واقعی مسدود است'},
