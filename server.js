@@ -33,7 +33,7 @@ app.use('/api/live',liveOrders.router);
 app.use('/api/review',liveOrders.router);
 app.use('/api/live-candles',createLiveCandles(db,config).router);
 app.get('/api/markets', (_,res)=>{res.set('Cache-Control','no-store');res.json(liveMarkets.snapshot());});
-app.get('/api/status',(_,res)=>res.json({agentImplemented:true,liveTradingEnabled:false,liveOrderReviewEnabled:config.reviewTrading.enabled,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
+app.get('/api/status',(_,res)=>res.json({agentImplemented:true,liveTradingEnabled:liveOrders.monitor.snapshot().session?.status==='watching'&&liveOrders.monitor.snapshot().session?.settings.executionMode==='automatic',liveOrderReviewEnabled:config.reviewTrading.enabled,sqlite:true,...db.prepare('SELECT mode, paused FROM settings WHERE id=1').get()}));
 app.post('/api/pause',(req,res)=>{if(typeof req.body.paused!=='boolean')return res.status(400).json({error:'paused must be boolean'});db.prepare('UPDATE settings SET paused=? WHERE id=1').run(Number(req.body.paused));res.json({paused:req.body.paused,demo:true});});
 const server=createServer(app);
 const wss=new WebSocketServer({server,path:'/ws'});
