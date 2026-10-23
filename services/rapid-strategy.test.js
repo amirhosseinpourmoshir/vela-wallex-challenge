@@ -8,3 +8,12 @@ test('market depth sweep rejects insufficient or disordered liquidity and excess
 test('local holds cannot starve supervision: initial, material pulse, and ten-minute heartbeat are bounded',()=>{assert.equal(rapidWake({asOf:1000,supervisoryOnly:true,score:0}).reason,'initial-supervision');assert.equal(rapidWake({asOf:1299,lastReview:1000,supervisoryOnly:true,score:10,fingerprint:'new'}).wake,false);assert.equal(rapidWake({asOf:1300,lastReview:1000,supervisoryOnly:true,score:3.5,fingerprint:'new',lastFingerprint:'old'}).reason,'local-filter-supervision');assert.equal(rapidWake({asOf:1600,lastReview:1000,supervisoryOnly:true,score:0}).reason,'supervisory-heartbeat')});
 
 test('three-minute confirmation survives a quiet final minute instead of silently discarding a breakout',()=>{const b=bars.map(r=>({...r}));b.at(-2).c=101.4;b.at(-2).h=101.5;b.at(-2).v=100;b.at(-1).v=0;b.at(-1).l=101.4;const p=rapidPlan({bars:b,features,asOf:7200,riskLevel:10});assert.equal(p.action,'buy');assert.equal(p.evidence.diagnostics.volume1m,0);assert.ok(p.evidence.diagnostics.volume3m>1.3)});
+
+ test('level ten can nominate an early recovery below EMA; lower risk and empty volume cannot',()=>{
+ const b=Array.from({length:120},(_,i)=>({t:i*60,o:100,h:100.1,l:99.9,c:100,v:10}));
+ for(let i=110;i<120;i++)Object.assign(b[i],{o:99.8,h:99.9,l:99.5,c:99.5});Object.assign(b[119],{c:99.7,h:99.8,l:99.5});
+ const f={'300':{ready:true,close:100,ema20:100,ema50:99.8,atr14:.4,volumeRatio:1},'900':{ready:true,close:100,ema20:99.8,rsi14:52}};
+ const run=r=>rapidPlan({bars:b,features:f,asOf:7200,riskLevel:r});
+ assert.equal(run(9).action,'hold');const p=run(10);assert.equal(p.action,'buy');assert.equal(p.strategy,'early-recovery-probe');assert.equal(p.allocationScale,.25);assert.equal(p.evidence.diagnostics.aboveMinuteEma,false);assert.ok(p.netRewardRiskEstimate>=1.2);
+ for(const bar of b.slice(-3))bar.v=0;assert.equal(run(10).action,'hold');
+ });
