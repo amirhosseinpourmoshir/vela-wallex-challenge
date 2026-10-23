@@ -15,7 +15,7 @@
     "test:markets": "node --test services/market-catalog.test.js",
     "test:knowledge": "node --test services/history.test.js services/incremental-history.test.js",
     "test:agent": "node --test services/trade-economics.test.js services/trader-analysis.test.js services/market-watcher.test.js services/agent-engine.test.js services/agent-portfolio.test.js services/persian-date.test.js services/scenario-context.test.js services/agent-stream.test.js",
-    "test:live": "node --test services/live-orders.test.js services/live-review-monitor.test.js services/live-candles.test.js services/live-candle-data.test.js"
+    "test:live": "node --test services/live-orders.test.js services/live-review-monitor.test.js services/live-candles.test.js services/live-candle-data.test.js services/proposal-alert-data.test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
